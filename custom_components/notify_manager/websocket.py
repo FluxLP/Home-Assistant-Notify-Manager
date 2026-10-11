@@ -71,6 +71,57 @@ def discover_targets(hass: HomeAssistant) -> dict[str, Any]:
     }
 
 
+def _service_calls(node: Any):
+    """Yield every action/service call dict found anywhere in an automation or script config."""
+    if isinstance(node, dict):
+        service = node.get("action") or node.get("service")
+        if isinstance(service, str) and service.startswith(f"{DOMAIN}."):
+            yield service.removeprefix(f"{DOMAIN}."), node
+        for value in node.values():
+            yield from _service_calls(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _service_calls(item)
+
+
+def find_usages(hass: HomeAssistant, store: Any) -> dict[str, list[dict[str, Any]]]:
+    """Map template id -> automations/scripts that send it."""
+    usages: dict[str, list[dict[str, Any]]] = {}
+    by_service = {t["service"]: t for t in store.templates.values()}
+    for domain in ("automation", "script"):
+        component = hass.data.get(domain)
+        for entity in getattr(component, "entities", []) or []:
+            config = getattr(entity, "raw_config", None)
+            if not config:
+                continue
+            found: set[str] = set()
+            for service, call in _service_calls(config):
+                if service == "send":
+                    ref = (call.get("data") or {}).get("template")
+                    tpl = store.find_template(ref) if isinstance(ref, str) else None
+                else:
+                    tpl = by_service.get(service)
+                if tpl:
+                    found.add(tpl["id"])
+            if not found:
+                continue
+            state = hass.states.get(entity.entity_id)
+            config_id = config.get("id") if domain == "automation" else entity.unique_id
+            item = {
+                "domain": domain,
+                "entity_id": entity.entity_id,
+                "name": (state.name if state else None) or config.get("alias") or entity.entity_id,
+                "state": state.state if state else None,
+                "last_triggered": state.attributes.get("last_triggered") if state else None,
+                "edit_url": f"/config/{domain}/edit/{config_id}" if config_id else None,
+            }
+            for template_id in found:
+                usages.setdefault(template_id, []).append(item)
+    for items in usages.values():
+        items.sort(key=lambda i: i["name"].lower())
+    return usages
+
+
 @callback
 def async_setup_websocket(
     hass: HomeAssistant, manager: NotifyManager, on_change: Callable[[], None]
@@ -93,6 +144,11 @@ def async_setup_websocket(
     @callback
     def ws_targets(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
         connection.send_result(msg["id"], discover_targets(hass))
+
+    @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/usages"})
+    @callback
+    def ws_usages(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+        connection.send_result(msg["id"], {"usages": find_usages(hass, store)})
 
     @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/log"})
     @callback
@@ -167,6 +223,7 @@ def async_setup_websocket(
     for command in (
         ws_config,
         ws_targets,
+        ws_usages,
         ws_log,
         ws_template_save,
         ws_template_delete,

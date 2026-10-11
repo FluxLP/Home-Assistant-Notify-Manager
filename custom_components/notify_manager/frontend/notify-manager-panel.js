@@ -70,6 +70,7 @@ class NotifyManagerPanel extends HTMLElement {
     this._config = null;
     this._targets = null;
     this._log = [];
+    this._usages = {};
     this._toast = null;
     this._unsubEvents = [];
     this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
@@ -108,6 +109,7 @@ class NotifyManagerPanel extends HTMLElement {
       ]);
       this._config = config;
       this._targets = targets;
+      await this._loadUsages();
     } catch (err) {
       this._error = err.message || String(err);
     }
@@ -122,6 +124,15 @@ class NotifyManagerPanel extends HTMLElement {
     };
     for (const type of ["notify_manager_sent", "notify_manager_response"]) {
       this._unsubEvents.push(this._hass.connection.subscribeEvents(refresh, type));
+    }
+  }
+
+  async _loadUsages() {
+    try {
+      const { usages } = await this._hass.callWS({ type: "notify_manager/usages" });
+      this._usages = usages;
+    } catch (err) {
+      this._usages = {};
     }
   }
 
@@ -155,6 +166,7 @@ class NotifyManagerPanel extends HTMLElement {
         this._tab = arg;
         this._edit = null;
         if (arg === "log") return this._loadLog();
+        if (arg === "templates") await this._loadUsages();
         if (arg === "devices") {
           this._targets = await this._hass.callWS({ type: "notify_manager/targets" });
         }
@@ -164,7 +176,13 @@ class NotifyManagerPanel extends HTMLElement {
         break;
       case "edit-template":
         this._edit = { kind: "template", data: { ...NEW_TEMPLATE(), ...clone(this._config.templates.find((t) => t.id === arg)) } };
+        this._render();
+        await this._loadUsages();
         break;
+      case "navigate":
+        history.pushState(null, "", arg);
+        window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+        return;
       case "new-recipient":
         this._edit = { kind: "recipient", data: NEW_RECIPIENT() };
         break;
@@ -273,6 +291,7 @@ class NotifyManagerPanel extends HTMLElement {
         this._edit.data = recipient;
       }
       this._config = await this._hass.callWS({ type: "notify_manager/config" });
+      await this._loadUsages();
       this._notify("Gespeichert");
       return true;
     } catch (err) {
@@ -387,6 +406,9 @@ class NotifyManagerPanel extends HTMLElement {
           speakers ? `<span class="badge"><ha-icon icon="mdi:speaker"></ha-icon>${speakers}</span>` : "",
           t.priority !== "normal" ? `<span class="badge ${t.priority}">${PRIORITY_LABELS[t.priority]}</span>` : "",
           t.actions.length ? `<span class="badge"><ha-icon icon="mdi:gesture-tap-button"></ha-icon>${t.actions.map((a) => esc(a.title)).join(" · ")}</span>` : "",
+          (this._usages[t.id] || []).length
+            ? `<span class="badge"><ha-icon icon="mdi:robot-outline"></ha-icon>${this._usages[t.id].length} ${this._usages[t.id].length === 1 ? "Verwendung" : "Verwendungen"}</span>`
+            : `<span class="badge muted">nicht verwendet</span>`,
         ].join("");
         return `<button class="item" data-cmd="edit-template" data-arg="${t.id}">
           <ha-icon class="item-icon" icon="${esc(t.icon || "mdi:bell")}"></ha-icon>
@@ -526,8 +548,38 @@ class NotifyManagerPanel extends HTMLElement {
         <button class="btn" data-cmd="test"><ha-icon icon="mdi:send-outline"></ha-icon>Testen</button>
         <button class="btn primary" data-cmd="save"><ha-icon icon="mdi:content-save-outline"></ha-icon>Speichern</button>
       </div>
-      ${general}${content}${push}${actions}${speakers}${other}
+      ${general}${isNew ? "" : this._renderUsedIn(t)}${content}${push}${actions}${speakers}${other}
       <div id="usage">${this._renderUsage(t)}</div>`;
+  }
+
+  _renderUsedIn(t) {
+    const items = this._usages[t.id] || [];
+    const when = (iso) => {
+      if (!iso) return "noch nie ausgelöst";
+      const d = new Date(iso);
+      return `zuletzt ${d.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}`;
+    };
+    const rows = items
+      .map((u) => {
+        const icon = u.domain === "automation" ? "mdi:robot" : "mdi:script-text";
+        const off = u.state === "off";
+        const inner = `<ha-icon icon="${icon}"></ha-icon>
+          <div class="usage-main"><div>${esc(u.name)}${off ? ' <span class="badge muted">deaktiviert</span>' : ""}</div>
+          <div class="item-sub">${u.domain === "automation" ? esc(when(u.last_triggered)) : "Skript"} · ${esc(u.entity_id)}</div></div>
+          ${u.edit_url ? '<ha-icon icon="mdi:pencil-outline"></ha-icon>' : ""}`;
+        return u.edit_url
+          ? `<button class="usage" data-cmd="navigate" data-arg="${esc(u.edit_url)}" title="Bearbeiten">${inner}</button>`
+          : `<div class="usage">${inner}</div>`;
+      })
+      .join("");
+    return this._section(
+      "mdi:robot-outline",
+      "Verwendet in",
+      rows
+        ? `<div class="usage-list">${rows}</div>`
+        : `<p class="hint">Noch keine Automation oder kein Skript verwendet diese Vorlage. Füge in einer Automation die Aktion „${esc(t.name)}“ hinzu (siehe unten).</p>`,
+      items.length ? `${items.length} ${items.length === 1 ? "Eintrag" : "Einträge"}` : ""
+    );
   }
 
   _usageYaml(t) {
@@ -723,6 +775,15 @@ const STYLES = `
   summary { cursor: pointer; color: var(--secondary-text-color); font-size: 14px; margin-bottom: 8px; }
   .actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
   .action-row { display: grid; grid-template-columns: 1fr 1fr auto auto auto; gap: 8px; align-items: center; }
+  .badge.muted { opacity: .6; }
+  .usage-list { display: flex; flex-direction: column; }
+  .usage { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 4px; background: none; border: none; border-bottom: 1px solid var(--divider-color); color: inherit; font: inherit; font-size: 14px; text-align: left; }
+  .usage:last-child { border-bottom: none; }
+  button.usage { cursor: pointer; border-radius: 8px; }
+  button.usage:hover { background: rgba(127,127,127,.1); }
+  .usage > ha-icon:first-child { color: var(--primary-color); }
+  .usage > ha-icon:last-child { color: var(--secondary-text-color); --mdc-icon-size: 18px; }
+  .usage-main { flex: 1; min-width: 0; }
   .builtins { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 12px; }
   .builtins .label { width: 100%; margin: 0; }
   .builtins .hint { width: 100%; margin: 2px 0 0; }

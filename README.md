@@ -20,6 +20,7 @@ auf der du **Benachrichtigungs-Vorlagen** anlegst und sie dann in Automationen a
 - **Auf Antwort warten**: die Automation bekommt die gedrückte Taste als Rückgabewert und kann verzweigen
 - Ruhezeiten und „nur ansagen, wenn jemand zu Hause ist“ für Lautsprecher
 - Verlauf der gesendeten Nachrichten inkl. Antworten
+- **Verwendet in**: jede Vorlage zeigt, welche Automationen und Skripte sie verwenden (mit Link zum Bearbeiten)
 
 ## Installation
 
