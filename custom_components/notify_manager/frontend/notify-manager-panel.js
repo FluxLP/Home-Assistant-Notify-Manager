@@ -754,4 +754,4 @@ const STYLES = `
   }
 `;
 
-customElements.define("notify-manager-panel", NotifyManagerPanel);
+if (!customElements.get("notify-manager-panel")) customElements.define("notify-manager-panel", NotifyManagerPanel);

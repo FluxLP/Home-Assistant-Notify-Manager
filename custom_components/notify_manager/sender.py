@@ -31,6 +31,8 @@ from .const import (
 )
 from .store import NotifyManagerStore, new_id
 
+IGNORED_TRIGGER_DOMAINS = ("automation.", "script.")
+
 
 @dataclass
 class Pending:
@@ -82,7 +84,11 @@ class NotifyManager:
 
     @callback
     def _remember_context(self, event: Event) -> None:
-        self._contexts[event.context.id] = event.data["entity_id"]
+        entity_id = event.data["entity_id"]
+        # Automations/scripts update their own state with the run context; never treat them as trigger.
+        if entity_id.startswith(IGNORED_TRIGGER_DOMAINS):
+            return
+        self._contexts[event.context.id] = entity_id
         if len(self._contexts) > CONTEXT_CACHE_SIZE:
             self._contexts.popitem(last=False)
 
@@ -91,12 +97,9 @@ class NotifyManager:
 
         An automation runs with Context(parent_id=<context of the triggering state>).
         """
-        if context is None:
+        if context is None or not context.parent_id:
             return None
-        for ctx_id in (context.parent_id, context.id):
-            if ctx_id and ctx_id in self._contexts:
-                return self._contexts[ctx_id]
-        return None
+        return self._contexts.get(context.parent_id)
 
     def _builtin_variables(self, context: Context | None, test: bool) -> dict[str, Any]:
         """Placeholders filled automatically from the triggering entity."""
