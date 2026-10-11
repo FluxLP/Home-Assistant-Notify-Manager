@@ -95,7 +95,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def _send(call: ServiceCall, template: str, variables: dict[str, Any]) -> ServiceResponse:
         options = {k: call.data[k] for k in CALL_OPTIONS if k in call.data}
-        result = await manager.async_send(template, variables, **options)
+        result = await manager.async_send(template, variables, context=call.context, **options)
         return result if call.return_response else None
 
     async def handle_send(call: ServiceCall) -> ServiceResponse:
@@ -138,7 +138,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 DOMAIN,
                 service,
                 {
-                    "name": f"{NAME}: {tpl['name']}",
+                    "name": tpl["name"],
                     "description": tpl["description"]
                     or f"Sendet die Benachrichtigungs-Vorlage „{tpl['name']}“.",
                     "fields": fields | OPTION_FIELDS,

@@ -5,7 +5,7 @@ import logging
 
 DOMAIN = "notify_manager"
 NAME = "Notify Manager"
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 LOGGER = logging.getLogger(__package__)
 
 STORAGE_KEY = DOMAIN
@@ -40,3 +40,7 @@ SERVICE_RELOAD = "reload"
 RESERVED_SERVICES = {SERVICE_SEND, SERVICE_RELOAD}
 
 LOG_SIZE = 50
+CONTEXT_CACHE_SIZE = 5000
+
+# Placeholders filled from the entity that triggered the automation.
+BUILTIN_VARIABLES = ("geraet", "entitaet", "entity_id", "bereich", "zustand")

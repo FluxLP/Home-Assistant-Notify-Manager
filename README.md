@@ -31,6 +31,21 @@ auf der du **Benachrichtigungs-Vorlagen** anlegst und sie dann in Automationen a
 ### Manuell
 Den Ordner `custom_components/notify_manager` nach `/config/custom_components/` kopieren, neu starten, Integration hinzufügen.
 
+## Automatische Platzhalter
+
+Diese Platzhalter füllt Notify Manager selbst – aus der Entität, die die Automation ausgelöst hat.
+So reicht **eine** Vorlage und **eine** Automation mit vielen Auslösern (z.B. alle LXC-Container):
+
+| Platzhalter | Inhalt (Beispiel) |
+|---|---|
+| `{{ geraet }}` | Gerätename – „LXC Downloads (112)“ |
+| `{{ entitaet }}` | Name der Entität – „Status“ |
+| `{{ entity_id }}` | `binary_sensor.lxc_downloads_112_status` |
+| `{{ bereich }}` | Bereich – „Büro“ |
+| `{{ zustand }}` | aktueller Zustand – `off` |
+
+Wird in der Automation ein Wert für denselben Namen eingetragen, hat dieser Vorrang.
+
 ## In Automationen verwenden
 
 Jede Vorlage bekommt einen eigenen Dienst, der in der Aktionsauswahl unter „Notify Manager“ erscheint.

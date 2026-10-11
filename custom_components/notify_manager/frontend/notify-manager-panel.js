@@ -5,6 +5,14 @@ const esc = (v) =>
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
+const BUILTINS = {
+  geraet: "Gerätename",
+  entitaet: "Name der Entität",
+  entity_id: "Entitäts-ID",
+  bereich: "Bereich",
+  zustand: "Zustand",
+};
+
 const PRIORITY_LABELS = { normal: "Normal", time_sensitive: "Zeitkritisch", critical: "Kritisch" };
 
 const ACTION_PRESETS = {
@@ -293,7 +301,7 @@ class NotifyManagerPanel extends HTMLElement {
   async _test() {
     if (!(await this._save())) return;
     const tpl = this._edit.data;
-    const variables = Object.fromEntries(tpl.variables.map((v) => [v, `[${v}]`]));
+    const variables = Object.fromEntries(tpl.variables.filter((v) => !(v in BUILTINS)).map((v) => [v, `[${v}]`]));
     try {
       const res = await this._hass.callWS({ type: "notify_manager/test", template_id: tpl.id, variables });
       if (res.errors?.length) this._notify(`Gesendet mit Fehlern: ${res.errors.join("; ")}`, true);
@@ -407,7 +415,7 @@ class NotifyManagerPanel extends HTMLElement {
         ${this._field("Icon", this._text("icon", t.icon, 'placeholder="mdi:bell"'))}
       </div>
       ${this._field("Beschreibung", this._text("description", t.description, 'placeholder="Optional – erscheint im Aktions-Dialog der Automation"'))}
-      ${this._field("Variablen", this._text("variables", t.variables.join(", "), 'placeholder="geraet, dauer"'), "Kommagetrennt. Im Text als <code>{{ geraet }}</code> verwendbar, in der Automation als eigene Felder.")}`
+      ${this._field("Variablen", this._text("variables", t.variables.join(", "), 'placeholder="geraet, dauer"'), "Eigene Platzhalter, kommagetrennt. Sie erscheinen in der Automation als Felder.")}`
     );
 
     const content = this._section(
@@ -415,6 +423,9 @@ class NotifyManagerPanel extends HTMLElement {
       "Inhalt",
       `${this._field("Titel", this._text("title", t.title, 'placeholder="{{ geraet }} ist fertig"'))}
       ${this._field("Text", `<textarea data-path="message" rows="3" placeholder="Die {{ geraet }} ist nach {{ dauer }} Minuten fertig.">${esc(t.message)}</textarea>`, "Jinja-Templates erlaubt, z.B. <code>{{ states('sensor.temperatur') }}</code>.")}
+      <div class="builtins"><span class="label">Automatisch aus dem Auslöser der Automation:</span>
+        ${Object.entries(BUILTINS).map(([k, v]) => `<span class="badge" title="${v}"><code>{{ ${k} }}</code> ${v}</span>`).join("")}
+        <p class="hint">Z.B. löst <code>binary_sensor.lxc_downloads_112_status</code> aus → <code>{{ geraet }}</code> = „LXC Downloads (112)“. In der Automation musst du dafür nichts eintragen; ein dort ausgefüllter Wert hat Vorrang.</p></div>
       ${this._field("Ansagetext für Lautsprecher", `<textarea data-path="tts_message" rows="2" placeholder="Leer = gleicher Text wie oben">${esc(t.tts_message)}</textarea>`)}`
     );
 
@@ -521,7 +532,7 @@ class NotifyManagerPanel extends HTMLElement {
 
   _usageYaml(t) {
     const service = t.service || this._slug(t.name) || "meine_vorlage";
-    const vars = (t.variables || []).map((v) => this._slug(v)).filter(Boolean);
+    const vars = (t.variables || []).map((v) => this._slug(v)).filter((v) => v && !(v in BUILTINS));
     const lines = [`action: notify_manager.${service}`];
     if (vars.length || (t.actions.length && t.wait)) lines.push("data:");
     vars.forEach((v) => lines.push(`  ${v}: "…"`));
@@ -712,6 +723,9 @@ const STYLES = `
   summary { cursor: pointer; color: var(--secondary-text-color); font-size: 14px; margin-bottom: 8px; }
   .actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
   .action-row { display: grid; grid-template-columns: 1fr 1fr auto auto auto; gap: 8px; align-items: center; }
+  .builtins { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 12px; }
+  .builtins .label { width: 100%; margin: 0; }
+  .builtins .hint { width: 100%; margin: 2px 0 0; }
   .preset-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .code-wrap { position: relative; }
   .code-wrap .icon-btn { position: absolute; top: 4px; right: 4px; }

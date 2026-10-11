@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Any
 
-from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
+from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.core import CALLBACK_TYPE, Context, Event, HomeAssistant, callback
+from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.template import Template
@@ -15,6 +17,8 @@ from homeassistant.util import dt as dt_util
 from .const import (
     ACTION_PREFIX,
     ALEXA_MODE_ANNOUNCE,
+    BUILTIN_VARIABLES,
+    CONTEXT_CACHE_SIZE,
     EVENT_RESPONSE,
     EVENT_SENT,
     LOG_SIZE,
@@ -51,17 +55,22 @@ class NotifyManager:
         self.store = store
         self.pending: dict[str, Pending] = {}
         self.log: deque[dict[str, Any]] = deque(maxlen=LOG_SIZE)
-        self._unsub: CALLBACK_TYPE | None = None
+        self._unsubs: list[CALLBACK_TYPE] = []
+        # context id of a state change -> entity_id, to find what triggered an automation
+        self._contexts: OrderedDict[str, str] = OrderedDict()
 
     @callback
     def async_start(self) -> None:
-        self._unsub = self.hass.bus.async_listen(MOBILE_ACTION_EVENT, self._handle_action)
+        self._unsubs = [
+            self.hass.bus.async_listen(MOBILE_ACTION_EVENT, self._handle_action),
+            self.hass.bus.async_listen(EVENT_STATE_CHANGED, self._remember_context),
+        ]
 
     @callback
     def async_stop(self) -> None:
-        if self._unsub:
-            self._unsub()
-            self._unsub = None
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs = []
         for pending in list(self.pending.values()):
             if pending.cancel_timeout:
                 pending.cancel_timeout()
@@ -70,6 +79,47 @@ class NotifyManager:
         self.pending.clear()
 
     # ------------------------------------------------------------------ helpers
+
+    @callback
+    def _remember_context(self, event: Event) -> None:
+        self._contexts[event.context.id] = event.data["entity_id"]
+        if len(self._contexts) > CONTEXT_CACHE_SIZE:
+            self._contexts.popitem(last=False)
+
+    def _trigger_entity(self, context: Context | None) -> str | None:
+        """Entity whose state change started the automation/script behind this call.
+
+        An automation runs with Context(parent_id=<context of the triggering state>).
+        """
+        if context is None:
+            return None
+        for ctx_id in (context.parent_id, context.id):
+            if ctx_id and ctx_id in self._contexts:
+                return self._contexts[ctx_id]
+        return None
+
+    def _builtin_variables(self, context: Context | None, test: bool) -> dict[str, Any]:
+        """Placeholders filled automatically from the triggering entity."""
+        entity_id = self._trigger_entity(context)
+        if entity_id is None:
+            if test:
+                return {k: f"[{k}]" for k in BUILTIN_VARIABLES}
+            return {k: "" for k in BUILTIN_VARIABLES}
+        state = self.hass.states.get(entity_id)
+        entry = er.async_get(self.hass).async_get(entity_id)
+        device = (
+            dr.async_get(self.hass).async_get(entry.device_id) if entry and entry.device_id else None
+        )
+        area_id = (entry.area_id if entry else None) or (device.area_id if device else None)
+        area = ar.async_get(self.hass).async_get_area(area_id) if area_id else None
+        name = state.name if state else entity_id
+        return {
+            "geraet": (device.name_by_user or device.name) if device else name,
+            "entitaet": name,
+            "entity_id": entity_id,
+            "bereich": area.name if area else "",
+            "zustand": state.state if state else "",
+        }
 
     def _render(self, text: str | None, variables: dict[str, Any]) -> str:
         if not text:
@@ -193,12 +243,17 @@ class NotifyManager:
         wait: bool | None = None,
         timeout: int | None = None,
         test: bool = False,
+        context: Context | None = None,
     ) -> dict[str, Any]:
         tpl = self.store.find_template(template_ref)
         if tpl is None:
             raise ServiceValidationError(f"Vorlage '{template_ref}' nicht gefunden")
 
-        variables = {name: "" for name in tpl["variables"]} | dict(variables or {})
+        builtins = self._builtin_variables(context, test)
+        passed = {k: v for k, v in (variables or {}).items() if v not in (None, "")}
+        variables = (
+            {name: "" for name in tpl["variables"] if name not in builtins} | builtins | passed
+        )
         request_id = new_id()
         tag = f"nm_{request_id}"
         rendered_title = self._render(title if title is not None else tpl["title"], variables)
