@@ -1,3 +1,5 @@
+<p align="center"><img src="custom_components/notify_manager/brand/icon@2x.png" width="160" alt="Notify Manager"></p>
+
 # Notify Manager für Home Assistant
 
 Eine eigene Seite in der Seitenleiste – ähnlich wie der [Switch Manager](https://github.com/Sian-Lee-SA/Home-Assistant-Switch-Manager) –,
