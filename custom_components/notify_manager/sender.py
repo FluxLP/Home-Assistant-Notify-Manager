@@ -32,6 +32,7 @@ from .const import (
 from .store import NotifyManagerStore, new_id
 
 IGNORED_TRIGGER_DOMAINS = ("automation.", "script.")
+MAX_CONTEXT_HOPS = 5
 
 
 @dataclass
@@ -60,6 +61,8 @@ class NotifyManager:
         self._unsubs: list[CALLBACK_TYPE] = []
         # context id of a state change -> entity_id, to find what triggered an automation
         self._contexts: OrderedDict[str, str] = OrderedDict()
+        # run context id of an automation/script -> context id that started it
+        self._parents: OrderedDict[str, str] = OrderedDict()
 
     @callback
     def async_start(self) -> None:
@@ -85,21 +88,48 @@ class NotifyManager:
     @callback
     def _remember_context(self, event: Event) -> None:
         entity_id = event.data["entity_id"]
-        # Automations/scripts update their own state with the run context; never treat them as trigger.
+        context = event.context
         if entity_id.startswith(IGNORED_TRIGGER_DOMAINS):
+            # Automations/scripts write their own state with their run context. They are never
+            # the trigger themselves, but tell us which context started the run.
+            if context.parent_id:
+                self._parents[context.id] = context.parent_id
+                if len(self._parents) > CONTEXT_CACHE_SIZE:
+                    self._parents.popitem(last=False)
             return
-        self._contexts[event.context.id] = entity_id
+        self._contexts[context.id] = entity_id
         if len(self._contexts) > CONTEXT_CACHE_SIZE:
             self._contexts.popitem(last=False)
 
     def _trigger_entity(self, context: Context | None) -> str | None:
         """Entity whose state change started the automation/script behind this call.
 
-        An automation runs with Context(parent_id=<context of the triggering state>).
+        An automation runs with Context(parent_id=<context of the triggering state>); service calls
+        and nested scripts may add further levels, so follow the parent chain a few hops.
         """
-        if context is None or not context.parent_id:
+        if context is None:
             return None
-        return self._contexts.get(context.parent_id)
+        LOGGER.debug("Auslöser-Suche: context=%s parent=%s", context.id, context.parent_id)
+        # Without a "for:" duration the automation runs while the state_changed event is still
+        # being dispatched, i.e. before our listener saw it. The state machine is already updated
+        # though, so also look the context up in the current states.
+        by_context = {state.context.id: state for state in self.hass.states.async_all()}
+        ctx_id = context.parent_id
+        for _ in range(MAX_CONTEXT_HOPS):
+            if not ctx_id:
+                return None
+            if ctx_id in self._contexts:
+                return self._contexts[ctx_id]
+            state = by_context.get(ctx_id)
+            if state is not None and not state.entity_id.startswith(IGNORED_TRIGGER_DOMAINS):
+                return state.entity_id
+            if ctx_id in self._parents:
+                ctx_id = self._parents[ctx_id]
+            elif state is not None:
+                ctx_id = state.context.parent_id
+            else:
+                return None
+        return None
 
     def _builtin_variables(self, context: Context | None, test: bool) -> dict[str, Any]:
         """Placeholders filled automatically from the triggering entity."""
