@@ -1,0 +1,66 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Notify Manager",
+        "description": "Fügt die Seite „Notify Manager“ zur Seitenleiste hinzu. Vorlagen, Empfänger und Geräte verwaltest du dort."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Notify Manager ist bereits eingerichtet."
+    }
+  },
+  "services": {
+    "send": {
+      "name": "Benachrichtigung senden",
+      "description": "Sendet eine Vorlage aus dem Notify Manager.",
+      "fields": {
+        "template": {
+          "name": "Vorlage",
+          "description": "ID, Dienstname oder Name der Vorlage."
+        },
+        "variables": {
+          "name": "Variablen",
+          "description": "Werte für die Platzhalter der Vorlage."
+        },
+        "wait": {
+          "name": "Auf Antwort warten",
+          "description": "Wartet, bis ein Aktions-Button gedrückt wurde oder das Zeitlimit abläuft."
+        },
+        "timeout": {
+          "name": "Zeitlimit",
+          "description": "Sekunden bis zur Antwort „timeout“ (0 = kein Limit)."
+        },
+        "priority": {
+          "name": "Priorität",
+          "description": "Überschreibt die Priorität der Vorlage."
+        },
+        "recipients": {
+          "name": "Empfänger",
+          "description": "Überschreibt die Empfänger (Name oder ID)."
+        },
+        "title": {
+          "name": "Titel",
+          "description": "Überschreibt den Titel."
+        },
+        "message": {
+          "name": "Text",
+          "description": "Überschreibt den Text."
+        }
+      }
+    },
+    "reload": {
+      "name": "Neu laden",
+      "description": "Lädt Vorlagen und Empfänger neu."
+    }
+  },
+  "selector": {
+    "priority": {
+      "options": {
+        "normal": "Normal",
+        "time_sensitive": "Zeitkritisch",
+        "critical": "Kritisch"
+      }
+    }
+  }
+}

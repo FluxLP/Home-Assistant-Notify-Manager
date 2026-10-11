@@ -1,0 +1,66 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Notify Manager",
+        "description": "Adds the Notify Manager page to the sidebar, where you manage templates, recipients and devices."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Notify Manager is already set up."
+    }
+  },
+  "services": {
+    "send": {
+      "name": "Send notification",
+      "description": "Sends a Notify Manager template.",
+      "fields": {
+        "template": {
+          "name": "Template",
+          "description": "Template id, service name or name."
+        },
+        "variables": {
+          "name": "Variables",
+          "description": "Values for the template placeholders."
+        },
+        "wait": {
+          "name": "Wait for response",
+          "description": "Waits until an action button is pressed or the timeout expires."
+        },
+        "timeout": {
+          "name": "Timeout",
+          "description": "Seconds until the response becomes 'timeout' (0 = no limit)."
+        },
+        "priority": {
+          "name": "Priority",
+          "description": "Overrides the template priority."
+        },
+        "recipients": {
+          "name": "Recipients",
+          "description": "Overrides the recipients (name or id)."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Overrides the title."
+        },
+        "message": {
+          "name": "Message",
+          "description": "Overrides the message."
+        }
+      }
+    },
+    "reload": {
+      "name": "Reload",
+      "description": "Reloads templates and recipients."
+    }
+  },
+  "selector": {
+    "priority": {
+      "options": {
+        "normal": "Normal",
+        "time_sensitive": "Time sensitive",
+        "critical": "Critical"
+      }
+    }
+  }
+}

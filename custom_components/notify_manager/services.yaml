@@ -1,0 +1,41 @@
+send:
+  fields:
+    template:
+      required: true
+      example: waschmaschine_fertig
+      selector:
+        text:
+    variables:
+      example: '{"geraet": "Waschmaschine"}'
+      selector:
+        object:
+    wait:
+      selector:
+        boolean:
+    timeout:
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: s
+          mode: box
+    priority:
+      selector:
+        select:
+          translation_key: priority
+          options:
+            - normal
+            - time_sensitive
+            - critical
+    recipients:
+      selector:
+        text:
+          multiple: true
+    title:
+      selector:
+        text:
+    message:
+      selector:
+        text:
+          multiline: true
+reload:
