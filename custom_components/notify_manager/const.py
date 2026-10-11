@@ -5,7 +5,7 @@ import logging
 
 DOMAIN = "notify_manager"
 NAME = "Notify Manager"
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 LOGGER = logging.getLogger(__package__)
 
 STORAGE_KEY = DOMAIN

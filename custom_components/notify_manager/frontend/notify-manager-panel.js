@@ -13,6 +13,50 @@ const BUILTINS = {
   zustand: "Zustand",
 };
 
+// Snippets offered in the "Platzhalter einfügen" menu.
+const PLACEHOLDER_GROUPS = [
+  {
+    title: "Automatisch aus dem Auslöser der Automation",
+    hint: "Werden vom Notify Manager selbst gefüllt – in der Automation musst du nichts eintragen.",
+    items: [
+      { code: "{{ geraet }}", label: "Gerätename", example: "LXC Downloads (112)" },
+      { code: "{{ entitaet }}", label: "Name der Entität", example: "LXC Downloads (112) Status" },
+      { code: "{{ entity_id }}", label: "Entitäts-ID", example: "binary_sensor.lxc_downloads_112_status" },
+      { code: "{{ bereich }}", label: "Bereich", example: "Büro" },
+      { code: "{{ zustand }}", label: "Neuer Zustand (roh)", example: "off" },
+    ],
+  },
+  {
+    title: "Datum & Uhrzeit",
+    items: [
+      { code: "{{ now().strftime('%H:%M') }}", label: "Uhrzeit", example: "18:58" },
+      { code: "{{ now().strftime('%d.%m.%Y') }}", label: "Datum", example: "11.10.2026" },
+      { code: "{{ now().strftime('%d.%m. %H:%M') }}", label: "Datum + Uhrzeit", example: "11.10. 18:58" },
+      { code: "{{ ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'][now().weekday()] }}", label: "Wochentag", example: "Sonntag" },
+    ],
+  },
+  {
+    title: "Werte anderer Entitäten",
+    hint: "Entitäts-ID im Platzhalter anpassen.",
+    items: [
+      { code: "{{ states('sensor.temperatur') }}", label: "Zustand einer Entität", example: "21.5" },
+      { code: "{{ states('sensor.temperatur') | round(1) }} °C", label: "Zahl gerundet mit Einheit", example: "21.5 °C" },
+      { code: "{{ state_attr('climate.wohnzimmer', 'temperature') }}", label: "Attribut einer Entität", example: "22" },
+      { code: "{{ states('sensor.waschmaschine_restzeit') | int // 60 }} Min.", label: "Sekunden → Minuten", example: "45 Min." },
+      { code: "{{ device_attr(entity_id, 'model') }}", label: "Modell des auslösenden Geräts", example: "LXC" },
+    ],
+  },
+  {
+    title: "Bedingungen & Übersetzungen",
+    items: [
+      { code: "{{ 'offline' if zustand in ['off', 'stopped', 'unavailable'] else 'online' }}", label: "Text je nach Zustand", example: "offline" },
+      { code: "{{ {'on': 'an', 'off': 'aus', 'stopped': 'gestoppt', 'running': 'läuft', 'unavailable': 'nicht verfügbar', 'unknown': 'unbekannt'}.get(zustand, zustand) }}", label: "Zustand auf Deutsch", example: "gestoppt" },
+      { code: "{{ geraet | replace('LXC ', '') }}", label: "Text entfernen", example: "Downloads (112)" },
+      { code: "{{ geraet | regex_replace(' \\(\\d+\\)$', '') }}", label: "ID in Klammern entfernen", example: "LXC Downloads" },
+    ],
+  },
+];
+
 const PRIORITY_LABELS = { normal: "Normal", time_sensitive: "Zeitkritisch", critical: "Kritisch" };
 
 const ACTION_PRESETS = {
@@ -76,6 +120,15 @@ class NotifyManagerPanel extends HTMLElement {
     this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
     this.shadowRoot.addEventListener("input", (ev) => this._onInput(ev));
     this.shadowRoot.addEventListener("change", (ev) => this._onInput(ev));
+    this._lastField = "message";
+    this.shadowRoot.addEventListener("focusin", (ev) => {
+      const path = ev.target.dataset?.path;
+      if (["title", "message", "tts_message"].includes(path)) this._lastField = path;
+    });
+    // keep the placeholder menu open across re-renders (toggle does not bubble → capture)
+    this.shadowRoot.addEventListener("toggle", (ev) => {
+      if (ev.target.classList?.contains("ph-menu")) this._phOpen = ev.target.open;
+    }, true);
   }
 
   set hass(hass) {
@@ -208,6 +261,13 @@ class NotifyManagerPanel extends HTMLElement {
       case "remove-action":
         this._edit.data.actions.splice(Number(arg), 1);
         break;
+      case "insert":
+        this._insertPlaceholder(this._phItems[Number(arg)]);
+        return;
+      case "copy-text":
+        await navigator.clipboard.writeText(arg);
+        this._notify("In die Zwischenablage kopiert");
+        return;
       case "copy":
         await navigator.clipboard.writeText(this.shadowRoot.getElementById(arg).textContent);
         this._notify("In die Zwischenablage kopiert");
@@ -259,6 +319,50 @@ class NotifyManagerPanel extends HTMLElement {
       if (out) out.textContent = el.dataset.percent !== undefined ? `${Math.round(value * 100)} %` : `${value} %`;
     }
     if (["variables", "name", "wait"].includes(path)) this._updateUsage();
+  }
+
+  _insertPlaceholder(code) {
+    const path = this._lastField;
+    const el = this.shadowRoot.querySelector(`[data-path="${path}"]`);
+    if (!el || !this._edit) return;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const before = el.value.slice(0, start);
+    const pad = before && !/\s$/.test(before) ? " " : "";
+    el.setRangeText(pad + code, start, end, "end");
+    setPath(this._edit.data, path, el.value);
+    el.focus();
+    const names = { title: "Titel", message: "Text", tts_message: "Ansagetext" };
+    this._notify(`In „${names[path]}“ eingefügt`);
+  }
+
+  _renderPlaceholderMenu(t) {
+    this._phItems = [];
+    const item = (p) => {
+      const idx = this._phItems.push(p.code) - 1;
+      return `<button class="ph-item" data-cmd="insert" data-arg="${idx}" title="Einfügen">
+        <code>${esc(p.code)}</code><span class="ph-label">${esc(p.label)}</span>
+        ${p.example ? `<span class="ph-example">→ ${esc(p.example)}</span>` : ""}</button>`;
+    };
+    const own = t.variables.map((v) => this._slug(v)).filter((v) => v && !PLACEHOLDER_GROUPS[0].items.some((i) => i.code === `{{ ${v} }}`));
+    const groups = [
+      ...(own.length
+        ? [{ title: "Eigene Variablen dieser Vorlage", hint: "Werden in der Automation als Felder ausgefüllt.", items: own.map((v) => ({ code: `{{ ${v} }}`, label: `Variable „${v}“`, example: "Wert aus der Automation" })) }]
+        : []),
+      ...PLACEHOLDER_GROUPS,
+    ];
+    const service = t.service || this._slug(t.name) || "meine_vorlage";
+    return `<details class="ph-menu" ${this._phOpen ? "open" : ""}>
+      <summary><ha-icon icon="mdi:code-braces"></ha-icon>Platzhalter einfügen</summary>
+      <p class="hint">Klick auf einen Eintrag fügt ihn an der Cursorposition im zuletzt benutzten Feld (Titel, Text oder Ansagetext) ein.</p>
+      ${groups
+        .map((g) => `<div class="ph-group"><div class="label">${esc(g.title)}</div>${g.hint ? `<p class="hint">${esc(g.hint)}</p>` : ""}${g.items.map(item).join("")}</div>`)
+        .join("")}
+      <div class="ph-group"><div class="label">Aktion dieser Vorlage (für Automationen, kein Platzhalter)</div>
+        <button class="ph-item" data-cmd="copy-text" data-arg="notify_manager.${esc(service)}" title="Kopieren">
+          <code>notify_manager.${esc(service)}</code><span class="ph-label">in der Automation als Aktion</span><span class="ph-example"><ha-icon icon="mdi:content-copy"></ha-icon> kopieren</span></button>
+      </div>
+    </details>`;
   }
 
   _slug(text) {
@@ -445,9 +549,7 @@ class NotifyManagerPanel extends HTMLElement {
       "Inhalt",
       `${this._field("Titel", this._text("title", t.title, 'placeholder="{{ geraet }} ist fertig"'))}
       ${this._field("Text", `<textarea data-path="message" rows="3" placeholder="Die {{ geraet }} ist nach {{ dauer }} Minuten fertig.">${esc(t.message)}</textarea>`, "Jinja-Templates erlaubt, z.B. <code>{{ states('sensor.temperatur') }}</code>.")}
-      <div class="builtins"><span class="label">Automatisch aus dem Auslöser der Automation:</span>
-        ${Object.entries(BUILTINS).map(([k, v]) => `<span class="badge" title="${v}"><code>{{ ${k} }}</code> ${v}</span>`).join("")}
-        <p class="hint">Z.B. löst <code>binary_sensor.lxc_downloads_112_status</code> aus → <code>{{ geraet }}</code> = „LXC Downloads (112)“. In der Automation musst du dafür nichts eintragen; ein dort ausgefüllter Wert hat Vorrang.</p></div>
+      ${this._renderPlaceholderMenu(t)}
       ${this._field("Ansagetext für Lautsprecher", `<textarea data-path="tts_message" rows="2" placeholder="Leer = gleicher Text wie oben">${esc(t.tts_message)}</textarea>`)}`
     );
 
@@ -784,6 +886,23 @@ const STYLES = `
   .usage > ha-icon:first-child { color: var(--primary-color); }
   .usage > ha-icon:last-child { color: var(--secondary-text-color); --mdc-icon-size: 18px; }
   .usage-main { flex: 1; min-width: 0; }
+  .ph-menu { border: 1px solid var(--divider-color); border-radius: 8px; padding: 0 12px; margin: 0 0 12px; }
+  .ph-menu[open] { padding-bottom: 8px; }
+  .ph-menu summary { display: flex; align-items: center; gap: 8px; padding: 10px 0; margin: 0; color: var(--primary-color); font-weight: 500; list-style: none; }
+  .ph-menu summary::-webkit-details-marker { display: none; }
+  .ph-menu summary::after { content: "▾"; margin-left: auto; transition: transform .2s; }
+  .ph-menu[open] summary::after { transform: rotate(180deg); }
+  .ph-menu summary ha-icon { --mdc-icon-size: 20px; }
+  .ph-group { margin-bottom: 8px; }
+  .ph-group .label { margin: 8px 0 2px; }
+  .ph-group .hint { margin: 0 0 4px; }
+  .ph-item { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; width: 100%; padding: 7px 8px; background: none; border: none; border-radius: 6px; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+  .ph-item:hover { background: rgba(127,127,127,.12); }
+  .ph-item code { font-size: 12px; color: var(--primary-color); overflow-wrap: anywhere; }
+  .ph-label { color: var(--primary-text-color); }
+  .ph-example { color: var(--secondary-text-color); display: inline-flex; align-items: center; gap: 4px; }
+  .ph-example ha-icon { --mdc-icon-size: 14px; }
+  @media (max-width: 600px) { .ph-item { grid-template-columns: 1fr; gap: 2px; } }
   .builtins { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 12px; }
   .builtins .label { width: 100%; margin: 0; }
   .builtins .hint { width: 100%; margin: 2px 0 0; }
